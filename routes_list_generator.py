@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import ipaddress
 import json
 import logging
@@ -35,19 +36,32 @@ class NetList():
         except socket.gaierror:
             logging.error("Can`t resolve FQDN %s", fqdn)
 
+def output(format: str, networks: list):
+    out = ''
+    if format == 'json':
+        return json.dumps([ f'{net.network}/{net.netmask}' for net in networks])
+    if format == 'openvpn':
+        for net in networks:
+            out += f'push "route { str(net.network) } { str(net.netmask) }"\n'
+        return out
+    if format == 'plain':
+        return '\n'.join([ f'{net.network}/{net.netmask}' for net in networks])
+
+
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s [%(levelname)s] %(message)s', level=logging.INFO, stream=sys.stderr)
+
+    argparser = argparse.ArgumentParser('Route list generator')
+    argparser.add_argument('--config', '-c', type=str, dest="config", required=True)
+    argparser.add_argument('--format', '-f', choices=['json', 'openvpn', 'plain'], dest="format", default='plain')
+    cmdargs = argparser.parse_args()
 
     if not shutil.which('bgpq4'):
         logging.fatal('You need bgpq4 to use this tool')
         sys.exit(1)
 
-    if len(sys.argv) == 1:
-        print(f'Usage: {sys.argv[0]} config_file.yaml')
-        sys.exit(1)
-
-    with open(sys.argv[1], 'rb') as conf_file:
+    with open(cmdargs.config, 'rb') as conf_file:
         config = yaml.safe_load(conf_file)
 
     netlist = NetList()
@@ -75,5 +89,4 @@ if __name__ == '__main__':
     netlist.networks = set(cidr_merge([str(net) for net in netlist.networks]))
     logging.info('Merged %d to %d networks', source_count, len(netlist.networks))
 
-    for net in netlist.networks:
-        print(f'push "route { str(net.network) } { str(net.netmask) }"')
+    print(output(cmdargs.format, netlist.networks))
